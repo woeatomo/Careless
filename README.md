@@ -28,7 +28,7 @@ Default-nya **paper trading** (`mode.dry_run: true`): bot memantau dan mensimula
 | Screening | 10 menit | discover → filter per jalur → audit maks 3 kandidat → buka / usulkan |
 | Telegram | 5 detik | `/status` `/approve <id>` `/reject <id>` `/pause` `/resume` |
 
-Mode buka posisi (`mode.open_mode`): `propose` (usulan ke Telegram, otomatis di jam 22.00–06.00 WIB), `auto`, atau `off`.
+Mode buka posisi (`mode.open_mode`): `auto` (default, full auto 24 jam), `propose` (usulan ke Telegram, otomatis hanya di jam `auto_hours_wib`), atau `off`.
 
 Rem risiko: jeda 24 jam setelah 3 stop-out (SL/rug) berturut-turut, atau rugi harian ≥ 10%. Penutupan rutin (OOR, TP) tidak dihitung.
 
@@ -60,7 +60,7 @@ Telegram: buat bot di @BotFather → isi `TELEGRAM_BOT_TOKEN` → kirim pesan ke
 
 1. Paper minimal 3–5 hari. Semua keputusan ada di `data/journal.jsonl`.
 2. Evaluasi per jalur: win rate, fee vs kerugian stop-out, alasan exit terbanyak.
-3. Ubah `mode.dry_run: false`, `pm2 restart careless-bot`. Mulai dengan `open_mode: propose`.
+3. Ubah `mode.dry_run: false`, `pm2 restart careless-bot`. Bot langsung full auto (`open_mode: auto`).
 
 ## Keamanan
 

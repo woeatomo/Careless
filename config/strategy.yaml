@@ -7,7 +7,7 @@ mode:
   # auto    = buka posisi sendiri
   # propose = kirim usulan, tunggu /approve di Telegram (kecuali di jam auto_hours_wib)
   # off     = tidak membuka posisi baru (hanya mengelola yang ada)
-  open_mode: propose
+  open_mode: auto
   # Jam WIB [mulai, selesai) di mana posisi baru dibuka otomatis walau open_mode=propose.
   auto_hours_wib: [22, 6]
   proposal_ttl_min: 15
