@@ -25,6 +25,8 @@ export interface ClosedRecord {
   reason: string;
   closedAt: string;
   paper: boolean;
+  feeSol?: number;
+  heldMin?: number;
 }
 
 export interface Proposal {
@@ -52,6 +54,20 @@ export interface PaperPosition extends Track {
   amountSol: number;
   feeSol: number;
   lastPnl: number;
+  lastValueSol?: number;
+}
+
+/** State satu eksperimen Lab (portofolio virtual terpisah). */
+export interface ExpState {
+  cash: number;
+  capital: number;
+  startedAt: string;
+  positions: Record<string, PaperPosition>;
+  closed: ClosedRecord[];
+  peakEquity: number;
+  maxDrawdownPct: number;
+  pausedUntil?: string;
+  day?: { date: string; startEquitySol: number };
 }
 
 export interface BotState {
@@ -64,6 +80,8 @@ export interface BotState {
   manualPause?: boolean;
   day?: { date: string; startEquitySol: number };
   telegramOffset?: number;
+  lab?: Record<string, ExpState>;
+  labLastReportDate?: string;
 }
 
 const empty = (): BotState => ({ tracks: {}, closed: [], proposals: {}, paper: {}, cooldowns: {} });

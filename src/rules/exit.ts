@@ -13,6 +13,7 @@ export interface Track {
   outAboveSince?: string;
   outBelowSince?: string;
   lastClaimAt?: string;
+  lastReviewDate?: string;
 }
 
 export interface ExitInput {
@@ -30,6 +31,28 @@ export interface ClaimPolicy {
   /** Jam WIB untuk claim harian; -1 = pakai interval biasa. */
   claimHourWib: number;
   hourNowWib: number;
+  /** Tanggal WIB hari ini (untuk review pagi sekali sehari). */
+  dateWib?: string;
+  /** Review pagi Careless: tutup kalau melemah, kalau masih oke claim fee saja. */
+  review?: MorningReviewCfg;
+}
+
+export interface MorningReviewCfg {
+  enabled: boolean;
+  hour_wib: number;
+  min_fee_tvl_24h_pct: number;
+  max_drop_24h_pct: number;
+}
+
+/** Versi mekanis review pagi Careless. */
+export function morningReview(pool: PoolDetail, r: MorningReviewCfg): { close: boolean; reason: string } {
+  const ft = feeTvl24hPct(pool.fee24h, pool.tvl);
+  if (Number.isFinite(ft) && ft < r.min_fee_tvl_24h_pct)
+    return { close: true, reason: `review pagi: fee/TVL 24j ${ft.toFixed(1)}% < ${r.min_fee_tvl_24h_pct}%` };
+  const p24 = pool.stats24h?.priceChange;
+  if (p24 !== undefined && Number.isFinite(p24) && p24 < -r.max_drop_24h_pct)
+    return { close: true, reason: `review pagi: harga 24j ${p24.toFixed(0)}%, keluar dari ranging` };
+  return { close: false, reason: "review pagi: masih sehat" };
 }
 
 export function rangeSide(activeBin: number, lowerBin: number, upperBin: number, inRange: boolean): RangeSide {
@@ -86,6 +109,15 @@ export function decideExit(
     if (minutesSince(t.outBelowSince, nowMs) >= x.out_of_range_below_close_min)
       return done({ action: "close", reason: "OOR kiri / slow rug, tidak menunggu harga balik" });
   } else t.outBelowSince = undefined;
+
+  const r = claim.review;
+  if (r?.enabled && claim.hourNowWib === r.hour_wib && claim.dateWib && t.lastReviewDate !== claim.dateWib) {
+    t.lastReviewDate = claim.dateWib;
+    const rev = morningReview(pool, r);
+    if (rev.close) return done({ action: "close", reason: rev.reason });
+    if (input.uncollectedFeeSol >= cfg.fees.claim_min_sol) return done({ action: "claim", reason: `${rev.reason}, claim fee` });
+    return done({ action: "hold", reason: rev.reason });
+  }
 
   if (input.uncollectedFeeSol >= cfg.fees.claim_min_sol) {
     const due =

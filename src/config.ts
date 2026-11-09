@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import YAML from "yaml";
+import type { MorningReviewCfg } from "./rules/exit.js";
 
 export type TrackName = "careless" | "evilpanda";
 
@@ -40,6 +41,7 @@ export interface TrackCfg {
   entry: EntryCfg;
   exit: ExitCfg;
   claim_hour_wib: number;
+  morning_review?: MorningReviewCfg;
 }
 
 export interface Config {
@@ -78,7 +80,23 @@ export interface Config {
     daily_loss_stop_pct: number;
     reentry_cooldown_hours: number;
   };
-  paper: { fee_capture_factor: number };
+  paper: { fee_capture_factor: number; fee_ref_depth_pct?: number };
+  lab?: LabCfg;
+}
+
+export interface LabExperiment {
+  name: string;
+  track: TrackName;
+  /** Bagian config jalur yang diganti untuk eksperimen ini (deep merge). */
+  overrides?: Record<string, unknown>;
+}
+
+export interface LabCfg {
+  enabled: boolean;
+  capital_sol: number;
+  report_hour_wib: number;
+  audits_per_screen: number;
+  experiments: LabExperiment[];
 }
 
 export interface Env {

@@ -8,6 +8,7 @@ import { rugCheck } from "./rules/rug.js";
 import { canOpenNew, dateWIB, positionSize } from "./rules/risk.js";
 import { paperFeeSol, valueRatio } from "./paper.js";
 import { fmt, hourWIB, inHourWindow, log, minutesSince } from "./util.js";
+import { Lab } from "./lab.js";
 
 const POOL_LINK = (pool: string) => `https://app.lpagent.io/pools/${pool}`;
 const TX_LINK = (sig?: string) => (sig ? `https://solscan.io/tx/${sig}` : "(tanpa signature)");
@@ -27,13 +28,17 @@ export function inferStrat(lowerBin: number, upperBin: number): TrackName {
 
 export class Bot {
   private lastScreenAt = 0;
+  /** Mode Lab: paper test banyak strategi sekaligus (hanya saat dry_run). */
+  readonly lab?: Lab;
 
   constructor(
     private cfg: Config,
     private api: LpAgentApi,
     private store: Store,
     private notifier: Notifier,
-  ) {}
+  ) {
+    if (cfg.mode.dry_run && cfg.lab?.enabled) this.lab = new Lab(cfg, api, store, notifier);
+  }
 
   private get paper() {
     return this.cfg.mode.dry_run;
@@ -48,6 +53,11 @@ export class Bot {
   /* ======================= SIKLUS UTAMA ======================= */
 
   async tick(): Promise<void> {
+    if (this.lab) {
+      await this.lab.tick();
+      this.store.save();
+      return;
+    }
     const positions = await this.api.openPositions();
     await this.manageLive(positions);
     if (this.paper) await this.managePaper();
@@ -109,7 +119,7 @@ export class Bot {
       prev,
       this.cfg,
       tc.exit,
-      { claimHourWib: tc.claim_hour_wib, hourNowWib: hourWIB() },
+      { claimHourWib: tc.claim_hour_wib, hourNowWib: hourWIB(), dateWib: dateWIB(), review: tc.morning_review },
     );
     const t: TrackedPosition = { ...prev, ...track, strat, lastPnl: pos.pnlPctSol, lastValueSol: pos.valueSol };
     this.s.tracks[pos.id] = t;
@@ -174,7 +184,7 @@ export class Bot {
           pp,
           this.cfg,
           tc.exit,
-          { claimHourWib: -1, hourNowWib: hourWIB(new Date(now)) },
+          { claimHourWib: -1, hourNowWib: hourWIB(new Date(now)), dateWib: dateWIB(new Date(now)), review: tc.morning_review },
           now,
         );
         Object.assign(pp, track, { lastUpdate: new Date(now).toISOString(), lastPnl: pnlPct });
@@ -372,6 +382,9 @@ export class Bot {
   async handleCommand(cmd: string, args: string[]): Promise<string> {
     switch (cmd) {
       case "status":
+      case "compare":
+        if (this.lab) return this.lab.compareText();
+        if (cmd === "compare") return "Mode Lab tidak aktif (butuh mode.dry_run: true dan lab.enabled: true).";
         return this.statusText();
       case "pause":
         this.s.manualPause = true;
@@ -416,7 +429,7 @@ export class Bot {
         return `Usulan ${p.symbol} dieksekusi.`;
       }
       default:
-        return "Perintah: /status /approve <id> /reject <id> /pause /resume";
+        return "Perintah: /status /compare /approve <id> /reject <id> /pause /resume";
     }
   }
 

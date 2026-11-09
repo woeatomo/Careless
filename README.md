@@ -9,7 +9,7 @@ Bot LP Meteora DLMM yang jalan di VPS lewat **LP Agent Open API**. Dua jalur str
 | Syarat harga | ranging 24 jam (±20%) | tidak pump > 50% dalam 1 jam |
 | Fee/TVL 24j | ≥ 5% | ≥ 10% + laju 6 jam ≥ 8% |
 | Posisi | Spot, 0% s/d -80% (SOL-only) | Bid-Ask, 0% s/d -30% (SOL-only) |
-| Ambil profit | review pagi (manual/Claude) + claim fee jam 06.00 WIB | trailing TP: aktif +5%, tutup jika turun 3 poin |
+| Ambil profit | review pagi jam 06.00 WIB: tutup kalau fee/TVL < 5% atau harga 24j < -20%, kalau sehat claim fee | trailing TP: aktif +5%, tutup jika turun 3 poin |
 | Fee/TVL < 10% selama 60m | tidak berlaku | tutup |
 | OOR kanan / kiri | tutup (15m / 30m) | tutup (15m / 30m) |
 | Hard rug | SL -15% + rug guard | SL -15% + rug guard |
@@ -18,7 +18,32 @@ Careless paling bagus dengan banyak posisi kecil, karena IL satu posisi tertutup
 
 **Whitelist narasi** (`whitelist_mints`): token pilihan boleh melewati syarat umur, mcap, launchpad, dan ranging. Audit dan rug guard tetap berlaku.
 
-Default-nya **paper trading** (`mode.dry_run: true`): bot memantau dan mensimulasikan posisi tanpa transaksi.
+Default-nya **paper test (Lab)**: bot memantau pasar dan mensimulasikan posisi tanpa transaksi.
+
+## Paper test: membandingkan strategi (Lab)
+
+Selama `mode.dry_run: true` dan `lab.enabled: true`, bot menjalankan beberapa strategi **sekaligus**, masing-masing dengan modal virtual sendiri (default 1,5 SOL) dan data pasar yang sama:
+
+| Eksperimen | Isi |
+| --- | --- |
+| `careless` | Careless asli: Spot 0..-80%, 5 × 0,2 SOL |
+| `careless_bidask` | Careless dengan shape Bid-Ask |
+| `careless_50` | Careless dengan range 0..-50% |
+| `evilpanda` | pembanding: Bid-Ask -30%, fee/TVL ≥ 10%, 3 × 0,4 SOL |
+
+Tambah atau ubah eksperimen di `lab.experiments` (bagian config jalur mana pun bisa di-override).
+
+Hasil dibandingkan lewat:
+
+- `/compare` di Telegram kapan saja, atau `npm run once` di terminal.
+- Laporan harian otomatis jam 07.00 WIB (`lab.report_hour_wib`).
+- `data/journal.jsonl`: setiap buka/tutup per eksperimen (`lab_open`, `lab_close`) untuk analisis lebih dalam.
+
+Metrik: return % terhadap modal, fee terkumpul, jumlah posisi tutup, win rate, jumlah SL/rug, drawdown maksimum.
+
+**Model fee paper** (estimasi, sama untuk semua strategi): laju fee/TVL pool × `paper.fee_capture_factor` × kepadatan likuiditas di bin aktif. Range lebih lebar berarti likuiditas per bin lebih tipis, jadi fee per SOL lebih kecil (Spot -80% ≈ 0,22× Spot -30%). Bid-Ask tipis di dekat harga dan tebal di bawah. Posisi di luar range tidak dapat fee. Nilai posisi (IL) dihitung dari model shape yang sama. Angka absolutnya kasar; yang berguna adalah **perbandingan antar strategi**.
+
+Setelah ada pemenang yang konsisten (saran: minimal 7 hari, ≥ 20 posisi tutup per strategi), pakai config strategi itu, set `lab.enabled: false` dan `mode.dry_run: false` untuk live.
 
 ## Siklus
 
@@ -26,7 +51,7 @@ Default-nya **paper trading** (`mode.dry_run: true`): bot memantau dan mensimula
 | --- | --- | --- |
 | Kelola posisi | 90 detik | rug guard → SL → trailing TP → fee/TVL floor → OOR → claim fee |
 | Screening | 10 menit | discover → filter per jalur → audit maks 3 kandidat → buka / usulkan |
-| Telegram | 5 detik | `/status` `/approve <id>` `/reject <id>` `/pause` `/resume` |
+| Telegram | 5 detik | `/compare` `/status` `/approve <id>` `/reject <id>` `/pause` `/resume` |
 
 Mode buka posisi (`mode.open_mode`): `auto` (default, full auto 24 jam), `propose` (usulan ke Telegram, otomatis hanya di jam `auto_hours_wib`), atau `off`.
 
@@ -41,8 +66,8 @@ git clone https://github.com/woeatomo/Careless.git && cd Careless
 npm install
 cp .env.example .env && chmod 600 .env
 nano .env   # LP_AGENT_API_KEY, SOLANA_PRIVATE_KEY, Telegram (opsional)
-npm test    # 18 test aturan strategi
-npm run once   # satu siklus, tetap paper — cek log
+npm test    # 22 test aturan strategi + Lab
+npm run once   # satu siklus paper + tabel perbandingan — cek log
 ```
 
 Jalankan terus dengan PM2:
@@ -82,7 +107,8 @@ Telegram: buat bot di @BotFather → isi `TELEGRAM_BOT_TOKEN` → kirim pesan ke
 ```
 config/strategy.yaml    semua ambang, per jalur
 src/index.ts            loop utama + perintah Telegram
-src/bot.ts              kelola posisi, paper, screening per jalur, usulan
+src/bot.ts              kelola posisi live, screening per jalur, usulan
+src/lab.ts              paper test banyak strategi paralel + metrik
 src/api.ts              client LP Agent Open API + normalisasi data
 src/rules/entry.ts      filter pool + audit token
 src/rules/exit.ts       keputusan tutup/claim (fungsi murni)
@@ -90,5 +116,5 @@ src/rules/rug.ts        deteksi rug
 src/rules/risk.ts       rem risiko + ukuran posisi
 src/paper.ts            model nilai Spot/Bid-Ask untuk paper trading
 src/state.ts            state.json + journal.jsonl
-test/rules.test.ts      test aturan
+test/                   test aturan + Lab
 ```

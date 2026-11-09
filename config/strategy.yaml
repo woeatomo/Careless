@@ -59,6 +59,11 @@ tracks:
       out_of_range_above_close_min: 15
       out_of_range_below_close_min: 30
     claim_hour_wib: 6        # claim fee sekali sehari di jam ini (Careless). -1 = ikut interval biasa
+    morning_review:          # review pagi: tutup kalau melemah, kalau masih oke claim fee saja
+      enabled: true
+      hour_wib: 6
+      min_fee_tvl_24h_pct: 5
+      max_drop_24h_pct: 20
 
   evilpanda:
     enabled: true
@@ -129,4 +134,34 @@ risk:
   reentry_cooldown_hours: 6
 
 paper:
+  # Porsi fee pool yang dianggap masuk ke posisi virtual (kalibrasi kasar, sama untuk semua strategi).
   fee_capture_factor: 0.5
+  # Patokan: posisi Spot selebar ini mendapat laju fee/TVL pool x fee_capture_factor.
+  # Range lebih lebar / likuiditas lebih tipis di bin aktif = fee per SOL lebih kecil.
+  fee_ref_depth_pct: 30
+
+# ============ LAB: paper test banyak strategi sekaligus ============
+# Aktif hanya jika mode.dry_run = true. Tiap eksperimen punya modal virtual sendiri,
+# memakai data pasar yang sama, dan tidak pernah mengirim transaksi.
+lab:
+  enabled: true
+  capital_sol: 1.5            # modal virtual tiap eksperimen
+  report_hour_wib: 7          # laporan perbandingan harian ke Telegram/log
+  audits_per_screen: 6        # batas audit token per screening (dibagi semua eksperimen)
+  experiments:
+    - name: careless          # versi utama: Spot 0..-80%, 5 x 0,2 SOL
+      track: careless
+    - name: careless_bidask   # sama, tapi shape Bid-Ask
+      track: careless
+      overrides:
+        position: { strategy: BidAsk }
+    - name: careless_50       # sama, tapi range 0..-50%
+      track: careless
+      overrides:
+        position: { range_below_pct: 50 }
+    - name: evilpanda         # pembanding: Bid-Ask -30%, fee tinggi, 3 x 0,4 SOL
+      track: evilpanda
+      overrides:
+        max_positions: 3
+        per_position_sol: 0.4
+        per_position_max_pct_balance: 35

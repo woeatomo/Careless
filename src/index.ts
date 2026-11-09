@@ -22,14 +22,19 @@ async function main() {
   const bot = new Bot(cfg, api, store, notifier);
 
   log(`=== LP Agent EvilPanda Bot === wallet ${signer.owner}`);
-  log(`Mode ${cfg.mode.dry_run ? "PAPER (tanpa transaksi)" : "LIVE"} | buka posisi: ${cfg.mode.open_mode}`);
+  log(`Mode ${bot.lab ? `LAB (${cfg.lab!.experiments.map((x) => x.name).join(", ")})` : cfg.mode.dry_run ? "PAPER (tanpa transaksi)" : "LIVE"} | buka posisi: ${cfg.mode.open_mode}`);
 
   if (process.argv.includes("--once")) {
     await bot.tick();
+    if (bot.lab) console.log(bot.lab.compareText());
     return;
   }
 
-  await notifier.send(`🤖 Bot jalan — mode ${cfg.mode.dry_run ? "PAPER" : "LIVE"}, buka posisi: ${cfg.mode.open_mode}`);
+  await notifier.send(
+    bot.lab
+      ? `🧪 Paper test jalan: ${cfg.lab!.experiments.map((x) => x.name).join(", ")}. Ketik /compare kapan saja.`
+      : `🤖 Bot jalan — mode ${cfg.mode.dry_run ? "PAPER" : "LIVE"}, buka posisi: ${cfg.mode.open_mode}`,
+  );
 
   let stopping = false;
   const stop = () => {
