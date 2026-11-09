@@ -8,7 +8,8 @@ export interface EntryCfg {
   fee_tvl_24h_min_pct: number;
   deep_pool_tvl_min_usd?: number;
   deep_pool_fee_tvl_24h_min_pct?: number;
-  fee_rate_6h_as_24h_min_pct: number;
+  /** Laju fee 4 jam terakhir × 6 ÷ TVL (persen). 0 = tidak dicek. */
+  fee_recent_as_24h_min_pct: number;
   volume_24h_min_usd: number;
   mcap_min_usd: number;
   tvl_min_usd: number;
@@ -32,27 +33,28 @@ export interface ExitCfg {
   out_of_range_below_close_min: number;
 }
 
+export interface ScanCfg {
+  min_volume_usd: number;
+  page_size: number;
+  category: string; // "" = semua kategori
+}
+
 export interface TrackCfg {
   enabled: boolean;
   max_positions: number;
   per_position_sol: number;
   per_position_max_pct_balance: number;
   position: { strategy: "Spot" | "Curve" | "BidAsk"; range_below_pct: number; max_bins: number };
+  scan: ScanCfg;
   entry: EntryCfg;
   exit: ExitCfg;
-  claim_hour_wib: number;
   morning_review?: MorningReviewCfg;
 }
 
 export interface Config {
-  mode: {
-    dry_run: boolean;
-    open_mode: "auto" | "propose" | "off";
-    auto_hours_wib: [number, number];
-    proposal_ttl_min: number;
-  };
+  mode: { dry_run: boolean };
   intervals: { manage_sec: number; screen_min: number; telegram_poll_sec: number };
-  sizing: { max_total_positions: number; min_buffer_sol: number };
+  sizing: { min_buffer_sol: number };
   whitelist_mints: string[];
   tracks: Record<TrackName, TrackCfg>;
   audit: {
@@ -61,10 +63,8 @@ export interface Config {
     dev_holding_max_pct: number;
     dev_mints_max: number;
     liquidity_drop_24h_max_pct: number;
-    candidates_per_screen: number;
   };
-  slippage_bps: number;
-  fees: { claim_min_sol: number; claim_interval_min: number; swap_to_sol: boolean };
+  fees: { claim_min_sol: number; claim_interval_min: number };
   rug_guard: {
     liquidity_drop_5m_pct: number;
     liquidity_drop_1h_pct: number;
@@ -80,8 +80,15 @@ export interface Config {
     daily_loss_stop_pct: number;
     reentry_cooldown_hours: number;
   };
-  paper: { fee_capture_factor: number; fee_ref_depth_pct?: number };
-  lab?: LabCfg;
+  paper: {
+    near_span_bins: number;
+    max_fee_minutes: number;
+    close_slippage_pct: number;
+    tx_cost_sol: number;
+    pool24h_refresh_min: number;
+  };
+  http: { gap_ms: number; timeout_ms: number };
+  lab: LabCfg;
 }
 
 export interface LabExperiment {
@@ -92,7 +99,6 @@ export interface LabExperiment {
 }
 
 export interface LabCfg {
-  enabled: boolean;
   capital_sol: number;
   report_hour_wib: number;
   audits_per_screen: number;
@@ -100,20 +106,18 @@ export interface LabCfg {
 }
 
 export interface Env {
-  apiKey: string;
-  privateKey: string;
   telegramToken?: string;
   telegramChatId?: string;
   discordWebhook?: string;
   dataDir: string;
 }
 
-/** Urutan jalur sesuai file config = prioritas. */
-export const trackOrder = (cfg: Config): TrackName[] =>
-  (Object.keys(cfg.tracks) as TrackName[]).filter((t) => cfg.tracks[t].enabled);
-
 export function loadConfig(path = process.env.CONFIG_PATH ?? "config/strategy.yaml"): Config {
   const cfg = YAML.parse(readFileSync(path, "utf8")) as Config;
+  if (cfg.mode?.dry_run === false)
+    throw new Error(
+      "Mode live belum tersedia: eksekusi langsung ke Meteora belum dipasang. Biarkan mode.dry_run: true (paper test).",
+    );
   cfg.whitelist_mints ??= [];
   for (const [name, t] of Object.entries(cfg.tracks)) {
     if (t.exit.stop_loss_pct > 0) throw new Error(`tracks.${name}.exit.stop_loss_pct harus negatif`);
@@ -121,21 +125,12 @@ export function loadConfig(path = process.env.CONFIG_PATH ?? "config/strategy.ya
       throw new Error(`tracks.${name}.position.range_below_pct harus di antara 0 dan 100`);
     t.entry.launchpads ??= [];
   }
+  if (!cfg.lab?.experiments?.length) throw new Error("lab.experiments kosong");
   return cfg;
 }
 
-/** Mode Lab = paper test murni: tidak butuh private key. */
-export const isLabMode = (cfg: Config) => cfg.mode.dry_run && Boolean(cfg.lab?.enabled);
-
-export function loadEnv(requirePrivateKey = true): Env {
-  const apiKey = process.env.LP_AGENT_API_KEY ?? "";
-  const privateKey = process.env.SOLANA_PRIVATE_KEY ?? "";
-  if (!apiKey) throw new Error("LP_AGENT_API_KEY belum diisi di .env");
-  if (requirePrivateKey && !privateKey)
-    throw new Error("SOLANA_PRIVATE_KEY belum diisi di .env (wajib untuk mode paper biasa dan live)");
+export function loadEnv(): Env {
   return {
-    apiKey,
-    privateKey,
     telegramToken: process.env.TELEGRAM_BOT_TOKEN || undefined,
     telegramChatId: process.env.TELEGRAM_CHAT_ID || undefined,
     discordWebhook: process.env.DISCORD_WEBHOOK_URL || undefined,

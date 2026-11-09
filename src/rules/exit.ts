@@ -1,5 +1,5 @@
 import type { Config, ExitCfg } from "../config.js";
-import type { PoolDetail } from "../api.js";
+import type { PoolDetail } from "../types.js";
 import { feeTvl24hPct } from "./entry.js";
 import { rugCheck } from "./rug.js";
 import { minutesSince } from "../util.js";

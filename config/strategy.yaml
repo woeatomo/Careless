@@ -1,31 +1,23 @@
-# Strategi gabungan Careless (utama) + EvilPanda (sampingan) untuk LP Agent (Meteora DLMM)
+# Careless LP Bot — PAPER TEST
+# Data langsung dari Meteora Pool Discovery + Jupiter (gratis, tanpa API key, tanpa transaksi).
 # Semua persen ditulis sebagai angka persen (10 = 10%).
 
 mode:
-  # true = paper trading: semua keputusan dicatat, TIDAK ada transaksi.
+  # Saat ini hanya paper test. Eksekusi live ke Meteora menyusul setelah strategi terbukti.
   dry_run: true
-  # auto    = buka posisi sendiri
-  # propose = kirim usulan, tunggu /approve di Telegram (kecuali di jam auto_hours_wib)
-  # off     = tidak membuka posisi baru (hanya mengelola yang ada)
-  open_mode: auto
-  # Jam WIB [mulai, selesai) di mana posisi baru dibuka otomatis walau open_mode=propose.
-  auto_hours_wib: [22, 6]
-  proposal_ttl_min: 15
 
 intervals:
-  manage_sec: 90
-  screen_min: 10
+  manage_sec: 90        # update posisi paper (harga, fee, exit)
+  screen_min: 10        # cari pool baru
   telegram_poll_sec: 5
 
 sizing:
-  max_total_positions: 6
-  min_buffer_sol: 0.15   # rent posisi, fee transaksi
+  min_buffer_sol: 0.15  # SOL yang tidak dipakai (rent posisi, biaya transaksi)
 
 # Token narasi kuat (mint). Boleh melewati syarat umur, mcap, launchpad, dan ranging.
 # Audit token dan rug guard TETAP berlaku.
 whitelist_mints: []
 
-# Urutan = prioritas. Tiap screening, jalur pertama yang masih punya slot diisi duluan.
 tracks:
   careless:
     enabled: true
@@ -35,10 +27,14 @@ tracks:
     position:
       strategy: Spot
       range_below_pct: 80
-      max_bins: 0             # 0 = tanpa batas. Isi (mis. 69) jika API menolak posisi lebar.
+      max_bins: 0           # 0 = tanpa batas (Meteora mendukung posisi lebar > 69 bin)
+    scan:                   # tahap 1: Meteora Pool Discovery, timeframe 24 jam
+      min_volume_usd: 10000
+      page_size: 50
+      category: ""          # "" = semua pool; isi "trending" kalau scan selalu kosong
     entry:
       fee_tvl_24h_min_pct: 5
-      fee_rate_6h_as_24h_min_pct: 0   # 0 = tidak dicek
+      fee_recent_as_24h_min_pct: 0    # 0 = tidak dicek
       volume_24h_min_usd: 0
       mcap_min_usd: 1000000
       tvl_min_usd: 30000
@@ -46,7 +42,7 @@ tracks:
       organic_score_min: 0
       bin_step_min: 80
       bin_step_max: 250
-      launchpads: [pump.fun]  # kosongkan [] untuk semua launchpad
+      launchpads: [pump.fun]          # kosongkan [] untuk semua launchpad
       ranging_24h_max_abs_pct: 20     # |perubahan harga 24 jam| harus <= ini
       skip_if_pump_1h_pct: 50
     exit:
@@ -58,27 +54,30 @@ tracks:
       fee_floor_duration_min: 0
       out_of_range_above_close_min: 15
       out_of_range_below_close_min: 30
-    claim_hour_wib: 6        # claim fee sekali sehari di jam ini (Careless). -1 = ikut interval biasa
-    morning_review:          # review pagi: tutup kalau melemah, kalau masih oke claim fee saja
+    morning_review:                   # tutup kalau melemah, kalau sehat lanjut
       enabled: true
       hour_wib: 6
       min_fee_tvl_24h_pct: 5
       max_drop_24h_pct: 20
 
-  evilpanda:
+  evilpanda:                          # hanya untuk pembanding di paper test
     enabled: true
-    max_positions: 1
-    per_position_sol: 0.2
-    per_position_max_pct_balance: 20
+    max_positions: 3
+    per_position_sol: 0.4
+    per_position_max_pct_balance: 35
     position:
       strategy: BidAsk
       range_below_pct: 30
       max_bins: 0
+    scan:
+      min_volume_usd: 100000
+      page_size: 50
+      category: trending
     entry:
       fee_tvl_24h_min_pct: 10
       deep_pool_tvl_min_usd: 300000
       deep_pool_fee_tvl_24h_min_pct: 6
-      fee_rate_6h_as_24h_min_pct: 8
+      fee_recent_as_24h_min_pct: 8    # fee 4 jam terakhir x 6 / TVL
       volume_24h_min_usd: 100000
       mcap_min_usd: 500000
       tvl_min_usd: 20000
@@ -98,7 +97,6 @@ tracks:
       fee_floor_duration_min: 60
       out_of_range_above_close_min: 15
       out_of_range_below_close_min: 30
-    claim_hour_wib: -1
 
 audit:
   require_mint_freeze_revoked: true
@@ -106,14 +104,10 @@ audit:
   dev_holding_max_pct: 5
   dev_mints_max: 20
   liquidity_drop_24h_max_pct: 30
-  candidates_per_screen: 3
-
-slippage_bps: 400
 
 fees:
   claim_min_sol: 0.01
   claim_interval_min: 60
-  swap_to_sol: true
 
 rug_guard:
   # Hard trigger: satu saja = tutup
@@ -127,41 +121,40 @@ rug_guard:
   holder_drop_1h_pct: 5
 
 risk:
-  # Hanya penutupan karena SL atau rug yang dihitung (penutupan rutin tidak).
+  # Hanya penutupan karena SL/rug (atau rugi >= 10%) yang dihitung sebagai stop-out.
   pause_after_consecutive_sl: 3
   pause_hours: 24
   daily_loss_stop_pct: 10
   reentry_cooldown_hours: 6
 
 paper:
-  # Porsi fee pool yang dianggap masuk ke posisi virtual (kalibrasi kasar, sama untuk semua strategi).
-  fee_capture_factor: 0.5
-  # Patokan: posisi Spot selebar ini mendapat laju fee/TVL pool x fee_capture_factor.
-  # Range lebih lebar / likuiditas lebih tipis di bin aktif = fee per SOL lebih kecil.
-  fee_ref_depth_pct: 30
+  # Fee: fee pool 5 menit / active TVL x likuiditas kita di +-near_span_bins bin dari harga.
+  near_span_bins: 3
+  max_fee_minutes: 15       # batas menit per update (bot mati lama tidak dapat fee fiktif)
+  close_slippage_pct: 1     # slippage saat menjual token ke SOL ketika tutup
+  tx_cost_sol: 0.003        # biaya transaksi buka + tutup per posisi
+  pool24h_refresh_min: 15   # data 24 jam pool disegarkan tiap N menit
 
-# ============ LAB: paper test banyak strategi sekaligus ============
-# Aktif hanya jika mode.dry_run = true. Tiap eksperimen punya modal virtual sendiri,
+http:
+  gap_ms: 300               # jeda minimum antar-request ke host yang sama
+  timeout_ms: 15000
+
+# Paper test banyak strategi sekaligus. Tiap eksperimen punya modal virtual sendiri,
 # memakai data pasar yang sama, dan tidak pernah mengirim transaksi.
 lab:
-  enabled: true
-  capital_sol: 1.5            # modal virtual tiap eksperimen
-  report_hour_wib: 7          # laporan perbandingan harian ke Telegram/log
-  audits_per_screen: 6        # batas audit token per screening (dibagi semua eksperimen)
+  capital_sol: 1.5
+  report_hour_wib: 7        # laporan perbandingan harian
+  audits_per_screen: 8      # batas audit token per screening (dibagi semua eksperimen)
   experiments:
     - name: careless          # versi utama: Spot 0..-80%, 5 x 0,2 SOL
       track: careless
-    - name: careless_bidask   # sama, tapi shape Bid-Ask
+    - name: careless_bidask   # sama, shape Bid-Ask
       track: careless
       overrides:
         position: { strategy: BidAsk }
-    - name: careless_50       # sama, tapi range 0..-50%
+    - name: careless_50       # sama, range 0..-50%
       track: careless
       overrides:
         position: { range_below_pct: 50 }
     - name: evilpanda         # pembanding: Bid-Ask -30%, fee tinggi, 3 x 0,4 SOL
       track: evilpanda
-      overrides:
-        max_positions: 3
-        per_position_sol: 0.4
-        per_position_max_pct_balance: 35

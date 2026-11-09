@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { PoolDetail } from "../api.js";
+import type { PoolDetail } from "../types.js";
 
 export interface RugResult {
   hard: string[];
@@ -8,7 +8,7 @@ export interface RugResult {
 }
 
 /**
- * Deteksi rug dari statistik token LP Agent (jendela 5 menit dan 1 jam).
+ * Deteksi rug dari statistik token Jupiter (jendela 5 menit dan 1 jam).
  * Hard trigger: satu cukup. Soft signal: butuh `soft_required` sekaligus.
  * Catatan: penjualan dev/top holder per wallet belum dipantau (butuh data on-chain).
  */

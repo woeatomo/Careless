@@ -1,43 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Track } from "./rules/exit.js";
 import type { TrackName } from "./config.js";
 import type { Shape } from "./paper.js";
 
-export interface TrackedPosition extends Track {
-  strat: TrackName;
-  pool: string;
-  pair: string;
-  tokenMint?: string;
-  openedAt: string;
-  lastPnl: number;
-  lastValueSol: number;
-  lastAdvice?: string;
-}
-
 export interface ClosedRecord {
   id: string;
-  strat?: TrackName;
+  strat: TrackName;
   pool: string;
   pair: string;
   pnlPct: number;
   pnlSol: number;
   reason: string;
   closedAt: string;
-  paper: boolean;
-  feeSol?: number;
-  heldMin?: number;
-}
-
-export interface Proposal {
-  id: string;
-  strat: TrackName;
-  pool: string;
-  symbol: string;
-  tokenMint: string;
-  amountSol: number;
-  createdAt: string;
-  summary: string;
+  feeSol: number;
+  heldMin: number;
+  priceMovePct: number;
 }
 
 export interface PaperPosition extends Track {
@@ -50,14 +28,17 @@ export interface PaperPosition extends Track {
   openedAt: string;
   lastUpdate: string;
   entryPrice: number; // harga token dalam SOL saat buka
+  binStep: number;
+  binsBelow: number;
   depthPct: number;
   amountSol: number;
   feeSol: number;
+  lastPrice: number;
   lastPnl: number;
-  lastValueSol?: number;
+  lastValueSol: number;
 }
 
-/** State satu eksperimen Lab (portofolio virtual terpisah). */
+/** State satu eksperimen (portofolio virtual terpisah). */
 export interface ExpState {
   cash: number;
   capital: number;
@@ -71,20 +52,13 @@ export interface ExpState {
 }
 
 export interface BotState {
-  tracks: Record<string, TrackedPosition>;
-  closed: ClosedRecord[];
-  proposals: Record<string, Proposal>;
-  paper: Record<string, PaperPosition>;
-  cooldowns: Record<string, string>; // pool -> boleh masuk lagi setelah waktu ini
-  pausedUntil?: string;
-  manualPause?: boolean;
-  day?: { date: string; startEquitySol: number };
-  telegramOffset?: number;
-  lab?: Record<string, ExpState>;
+  lab: Record<string, ExpState>;
   labLastReportDate?: string;
+  manualPause?: boolean;
+  telegramOffset?: number;
 }
 
-const empty = (): BotState => ({ tracks: {}, closed: [], proposals: {}, paper: {}, cooldowns: {} });
+const empty = (): BotState => ({ lab: {} });
 
 export class Store {
   state: BotState;
@@ -106,12 +80,5 @@ export class Store {
   /** Jurnal append-only untuk evaluasi dan tuning. */
   journal(event: Record<string, unknown>): void {
     appendFileSync(join(this.dir, "journal.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...event }) + "\n");
-  }
-
-  recordClose(rec: ClosedRecord, cooldownHours: number): void {
-    this.state.closed.push(rec);
-    if (this.state.closed.length > 500) this.state.closed = this.state.closed.slice(-500);
-    this.state.cooldowns[rec.pool] = new Date(Date.now() + cooldownHours * 3_600_000).toISOString();
-    this.journal({ type: "close", ...rec });
   }
 }
