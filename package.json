@@ -1,0 +1,26 @@
+{
+  "name": "careless-lp-bot",
+  "version": "0.2.0",
+  "description": "Bot LP Meteora DLMM via LP Agent Open API — Careless (Spot -80%, ranging) + EvilPanda (Bid-Ask -30%, fee tinggi), rug guard, paper trading",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "once": "tsx src/index.ts --once",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "bs58": "^6.0.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

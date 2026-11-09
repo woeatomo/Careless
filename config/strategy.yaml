@@ -1,0 +1,132 @@
+# Strategi gabungan Careless (utama) + EvilPanda (sampingan) untuk LP Agent (Meteora DLMM)
+# Semua persen ditulis sebagai angka persen (10 = 10%).
+
+mode:
+  # true = paper trading: semua keputusan dicatat, TIDAK ada transaksi.
+  dry_run: true
+  # auto    = buka posisi sendiri
+  # propose = kirim usulan, tunggu /approve di Telegram (kecuali di jam auto_hours_wib)
+  # off     = tidak membuka posisi baru (hanya mengelola yang ada)
+  open_mode: propose
+  # Jam WIB [mulai, selesai) di mana posisi baru dibuka otomatis walau open_mode=propose.
+  auto_hours_wib: [22, 6]
+  proposal_ttl_min: 15
+
+intervals:
+  manage_sec: 90
+  screen_min: 10
+  telegram_poll_sec: 5
+
+sizing:
+  max_total_positions: 6
+  min_buffer_sol: 0.15   # rent posisi, fee transaksi
+
+# Token narasi kuat (mint). Boleh melewati syarat umur, mcap, launchpad, dan ranging.
+# Audit token dan rug guard TETAP berlaku.
+whitelist_mints: []
+
+# Urutan = prioritas. Tiap screening, jalur pertama yang masih punya slot diisi duluan.
+tracks:
+  careless:
+    enabled: true
+    max_positions: 5
+    per_position_sol: 0.2
+    per_position_max_pct_balance: 20
+    position:
+      strategy: Spot
+      range_below_pct: 80
+      max_bins: 0             # 0 = tanpa batas. Isi (mis. 69) jika API menolak posisi lebar.
+    entry:
+      fee_tvl_24h_min_pct: 5
+      fee_rate_6h_as_24h_min_pct: 0   # 0 = tidak dicek
+      volume_24h_min_usd: 0
+      mcap_min_usd: 1000000
+      tvl_min_usd: 30000
+      token_age_min_hours: 72
+      organic_score_min: 0
+      bin_step_min: 80
+      bin_step_max: 250
+      launchpads: [pump.fun]  # kosongkan [] untuk semua launchpad
+      ranging_24h_max_abs_pct: 20     # |perubahan harga 24 jam| harus <= ini
+      skip_if_pump_1h_pct: 50
+    exit:
+      stop_loss_pct: -15
+      take_profit_trigger_pct: 0      # 0 = mati (profit diambil lewat review pagi)
+      trailing_pct: 0
+      fee_floor_enabled: false
+      fee_tvl_24h_floor_pct: 0
+      fee_floor_duration_min: 0
+      out_of_range_above_close_min: 15
+      out_of_range_below_close_min: 30
+    claim_hour_wib: 6        # claim fee sekali sehari di jam ini (Careless). -1 = ikut interval biasa
+
+  evilpanda:
+    enabled: true
+    max_positions: 1
+    per_position_sol: 0.2
+    per_position_max_pct_balance: 20
+    position:
+      strategy: BidAsk
+      range_below_pct: 30
+      max_bins: 0
+    entry:
+      fee_tvl_24h_min_pct: 10
+      deep_pool_tvl_min_usd: 300000
+      deep_pool_fee_tvl_24h_min_pct: 6
+      fee_rate_6h_as_24h_min_pct: 8
+      volume_24h_min_usd: 100000
+      mcap_min_usd: 500000
+      tvl_min_usd: 20000
+      token_age_min_hours: 6
+      organic_score_min: 70
+      bin_step_min: 80
+      bin_step_max: 200
+      launchpads: []
+      ranging_24h_max_abs_pct: 0      # 0 = tidak dicek
+      skip_if_pump_1h_pct: 50
+    exit:
+      stop_loss_pct: -15
+      take_profit_trigger_pct: 5
+      trailing_pct: 3
+      fee_floor_enabled: true
+      fee_tvl_24h_floor_pct: 10
+      fee_floor_duration_min: 60
+      out_of_range_above_close_min: 15
+      out_of_range_below_close_min: 30
+    claim_hour_wib: -1
+
+audit:
+  require_mint_freeze_revoked: true
+  top_holders_max_pct: 30
+  dev_holding_max_pct: 5
+  dev_mints_max: 20
+  liquidity_drop_24h_max_pct: 30
+  candidates_per_screen: 3
+
+slippage_bps: 400
+
+fees:
+  claim_min_sol: 0.01
+  claim_interval_min: 60
+  swap_to_sol: true
+
+rug_guard:
+  # Hard trigger: satu saja = tutup
+  liquidity_drop_5m_pct: 15
+  liquidity_drop_1h_pct: 30
+  exit_on_authority_change: true
+  # Soft signal: butuh soft_required sekaligus
+  soft_required: 2
+  sell_share_1h_pct: 75
+  price_drop_5m_pct: 20
+  holder_drop_1h_pct: 5
+
+risk:
+  # Hanya penutupan karena SL atau rug yang dihitung (penutupan rutin tidak).
+  pause_after_consecutive_sl: 3
+  pause_hours: 24
+  daily_loss_stop_pct: 10
+  reentry_cooldown_hours: 6
+
+paper:
+  fee_capture_factor: 0.5
