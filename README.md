@@ -70,6 +70,8 @@ npm test    # 22 test aturan strategi + Lab
 npm run once   # satu siklus paper + tabel perbandingan — cek log
 ```
 
+Selama paper test, `SOLANA_PRIVATE_KEY` boleh dikosongkan: mode Lab hanya membaca data pasar.
+
 Jalankan terus dengan PM2:
 
 ```bash
@@ -80,6 +82,17 @@ pm2 logs careless-bot
 ```
 
 Telegram: buat bot di @BotFather → isi `TELEGRAM_BOT_TOKEN` → kirim pesan ke bot → ambil `chat.id` dari `https://api.telegram.org/bot<TOKEN>/getUpdates` → isi `TELEGRAM_CHAT_ID`. Bot hanya menerima perintah dari chat id itu.
+
+### Berdampingan dengan bot lain (mis. meridianEvPANDA)
+
+Bot ini berdiri sendiri: folder, `.env`, `data/`, dan nama proses PM2-nya terpisah, jadi tidak menyentuh bot lain.
+
+- Clone ke folder baru (mis. `~/careless-bot`), jangan di dalam folder bot lain.
+- Pakai **token bot Telegram baru**. Dua proses yang membaca token yang sama akan rebutan perintah.
+- Batasi memori agar VPS kecil (2 GB) tetap aman:
+  `pm2 start npm --name careless-bot --max-memory-restart 300M -- start`
+- Cek dengan `pm2 ls` (kedua bot harus `online`) dan `free -h`.
+- Butuh Node 20+. Kalau bot lain memakai Node lama, cek dulu `node -v` sebelum mengganti versi global.
 
 ## Dari paper ke live
 

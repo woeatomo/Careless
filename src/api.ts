@@ -72,11 +72,18 @@ export interface Position {
 /* ---------- Client ---------- */
 
 export class LpAgentApi {
-  constructor(private apiKey: string, private signer: Signer) {}
+  /** `signer` boleh kosong di mode Lab (paper test): hanya baca data pasar, tanpa transaksi. */
+  constructor(private apiKey: string, private signer?: Signer) {}
 
-  get owner() {
+  get owner(): string {
+    if (!this.signer) throw new Error("SOLANA_PRIVATE_KEY dibutuhkan untuk membaca/mengelola posisi wallet");
     return this.signer.owner;
   }
+
+  private sign = (tx: string): string => {
+    if (!this.signer) throw new Error("SOLANA_PRIVATE_KEY dibutuhkan untuk mengirim transaksi");
+    return this.signer.sign(tx);
+  };
 
   private async call(method: "GET" | "POST", path: string, body?: object, attempt = 0): Promise<any> {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -153,8 +160,8 @@ export class LpAgentApi {
     });
     const land = await this.call("POST", "/pools/landing-add-tx", {
       lastValidBlockHeight: addTx.data.lastValidBlockHeight,
-      swapTxsWithJito: (addTx.data.swapTxsWithJito ?? []).map(this.signer.sign),
-      addLiquidityTxsWithJito: (addTx.data.addLiquidityTxsWithJito ?? []).map(this.signer.sign),
+      swapTxsWithJito: (addTx.data.swapTxsWithJito ?? []).map(this.sign),
+      addLiquidityTxsWithJito: (addTx.data.addLiquidityTxsWithJito ?? []).map(this.sign),
       meta: addTx.data.meta,
     });
     return { position: addTx.data.meta?.positionPubKey, signature: land.data?.signature };
@@ -173,8 +180,8 @@ export class LpAgentApi {
       lastValidBlockHeight: tx.data.lastValidBlockHeight,
       closeTxs: [],
       swapTxs: [],
-      closeTxsWithJito: (tx.data.closeTxsWithJito ?? []).map(this.signer.sign),
-      swapTxsWithJito: (tx.data.swapTxsWithJito ?? []).map(this.signer.sign),
+      closeTxsWithJito: (tx.data.closeTxsWithJito ?? []).map(this.sign),
+      swapTxsWithJito: (tx.data.swapTxsWithJito ?? []).map(this.sign),
     });
     return land.data?.signature;
   }
@@ -189,8 +196,8 @@ export class LpAgentApi {
     });
     const land = await this.call("POST", "/position/landing-claim-fee-tx", {
       lastValidBlockHeight: tx.data.lastValidBlockHeight,
-      claimTxsWithJito: (tx.data.claimTxsWithJito ?? []).map(this.signer.sign),
-      swapTxsWithJito: (tx.data.swapTxsWithJito ?? []).map(this.signer.sign),
+      claimTxsWithJito: (tx.data.claimTxsWithJito ?? []).map(this.sign),
+      swapTxsWithJito: (tx.data.swapTxsWithJito ?? []).map(this.sign),
     });
     return land.data?.signature;
   }

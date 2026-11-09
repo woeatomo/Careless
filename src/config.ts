@@ -124,11 +124,15 @@ export function loadConfig(path = process.env.CONFIG_PATH ?? "config/strategy.ya
   return cfg;
 }
 
-export function loadEnv(): Env {
+/** Mode Lab = paper test murni: tidak butuh private key. */
+export const isLabMode = (cfg: Config) => cfg.mode.dry_run && Boolean(cfg.lab?.enabled);
+
+export function loadEnv(requirePrivateKey = true): Env {
   const apiKey = process.env.LP_AGENT_API_KEY ?? "";
   const privateKey = process.env.SOLANA_PRIVATE_KEY ?? "";
   if (!apiKey) throw new Error("LP_AGENT_API_KEY belum diisi di .env");
-  if (!privateKey) throw new Error("SOLANA_PRIVATE_KEY belum diisi di .env");
+  if (requirePrivateKey && !privateKey)
+    throw new Error("SOLANA_PRIVATE_KEY belum diisi di .env (wajib untuk mode paper biasa dan live)");
   return {
     apiKey,
     privateKey,

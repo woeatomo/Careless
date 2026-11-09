@@ -1,4 +1,4 @@
-import { loadConfig, loadEnv } from "./config.js";
+import { isLabMode, loadConfig, loadEnv } from "./config.js";
 import { LpAgentApi } from "./api.js";
 import { Bot } from "./bot.js";
 import { Notifier } from "./notify.js";
@@ -14,14 +14,14 @@ try {
 
 async function main() {
   const cfg = loadConfig();
-  const env = loadEnv();
-  const signer = new Signer(env.privateKey);
+  const env = loadEnv(!isLabMode(cfg));
+  const signer = env.privateKey ? new Signer(env.privateKey) : undefined;
   const api = new LpAgentApi(env.apiKey, signer);
   const store = new Store(env.dataDir);
   const notifier = new Notifier(env.telegramToken, env.telegramChatId, env.discordWebhook);
   const bot = new Bot(cfg, api, store, notifier);
 
-  log(`=== LP Agent EvilPanda Bot === wallet ${signer.owner}`);
+  log(`=== Careless LP Bot === wallet ${signer?.owner ?? "(tanpa private key — mode Lab)"}`);
   log(`Mode ${bot.lab ? `LAB (${cfg.lab!.experiments.map((x) => x.name).join(", ")})` : cfg.mode.dry_run ? "PAPER (tanpa transaksi)" : "LIVE"} | buka posisi: ${cfg.mode.open_mode}`);
 
   if (process.argv.includes("--once")) {
