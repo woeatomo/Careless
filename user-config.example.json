@@ -1,0 +1,124 @@
+{
+  "_readme": [
+    "Careless bot (meridianEvPANDA architecture, Careless strategy). Copy to user-config.json and edit; restart after changes.",
+    "shadowMode: true forces DRY_RUN (nothing is submitted); every would-be entry becomes a paper position (node cli.js paper). Set false only after reviewing paper results.",
+    "Secrets go in .env, never here: RPC_URL, WALLET_PRIVATE_KEY, TELEGRAM_BOT_TOKEN, GMGN_API_KEY.",
+    "Sizing: maxPositions \u00d7 deployAmountSol (Careless works best with many small positions). maxDeployAmount caps compounding.",
+    "Deploy gates (minTvl, maxTvl, minBinStep, maxBinStep, timeframe, minFeeActiveTvlRatio) are re-checked by the executor right before every deploy; keep them at least as loose as careless.pool.",
+    "careless.*: every key is optional; see buildCarelessConfig in config.js for all defaults."
+  ],
+  "shadowMode": true,
+  "walletAddress": "",
+  "maxPositions": 5,
+  "deployAmountSol": 0.2,
+  "positionSizePct": 0.2,
+  "maxDeployAmount": 0.2,
+  "minSolToOpen": 0.2,
+  "gasReserve": 0.15,
+  "minBinStep": 80,
+  "maxBinStep": 250,
+  "minTvl": 30000,
+  "maxTvl": null,
+  "timeframe": "24h",
+  "minFeeActiveTvlRatio": 0,
+  "minClaimAmount": 1,
+  "autoSwapAfterClaim": true,
+  "solMode": true,
+  "repeatDeployCooldownEnabled": true,
+  "repeatDeployCooldownTriggerCount": 3,
+  "repeatDeployCooldownHours": 12,
+  "repeatDeployCooldownScope": "token",
+  "oorCooldownTriggerCount": 3,
+  "oorCooldownHours": 12,
+  "managementIntervalMin": 10,
+  "pnlSource": "meteora",
+  "pnlPollIntervalSec": 3,
+  "pnlConfirmTicks": 2,
+  "careless": {
+    "enabled": true,
+    "whitelistMints": [],
+    "screener": {
+      "intervalMin": 5,
+      "minMcap": 1000000,
+      "minPoolVolume": 10000,
+      "timeframe": "24h",
+      "category": "",
+      "pageSize": 50,
+      "maxScreenPerRun": 8,
+      "rescreenMin": 30
+    },
+    "filters": {
+      "minMcap": 1000000,
+      "minTokenAgeHours": 72,
+      "launchpads": [
+        "pump.fun"
+      ],
+      "maxRange24hPct": 20,
+      "maxPump1hPct": 50,
+      "maxTop10Pct": 30,
+      "maxDevBalancePct": 5
+    },
+    "pool": {
+      "minTvl": 30000,
+      "maxTvl": null,
+      "minBinStep": 80,
+      "maxBinStep": 250,
+      "minFeeTvl24hPct": 5,
+      "preferHighBinStep": true
+    },
+    "rugcheck": {
+      "enabled": true,
+      "maxScore": 10,
+      "rejectDanger": true,
+      "requireData": true
+    },
+    "gmgn": {
+      "enabled": true,
+      "requireData": false
+    },
+    "position": {
+      "strategy": "spot",
+      "downsidePct": 80,
+      "minDownsidePct": 50,
+      "shrinkToInitialized": true
+    },
+    "entry": {
+      "maxPriceMovePct": 5,
+      "reentryCooldownHours": 6
+    },
+    "exits": {
+      "stopLossPct": -15,
+      "takeProfitPct": null,
+      "trailingTakeProfit": false,
+      "oorAboveWaitMinutes": 30,
+      "oorAboveMinPnlPct": 0,
+      "oorBelowWaitMinutes": 60
+    },
+    "rugGuard": {
+      "enabled": true,
+      "liquidityDrop5mPct": 15,
+      "liquidityDrop1hPct": 30,
+      "exitOnAuthorityChange": true,
+      "softRequired": 2,
+      "sellShare1hPct": 75,
+      "priceDrop5mPct": 20,
+      "holderDrop1hPct": 5
+    },
+    "morningReview": {
+      "enabled": true,
+      "hourLocal": 6,
+      "timeZone": "Asia/Jakarta",
+      "minFeeTvl24hPct": 5,
+      "maxDrop24hPct": 20
+    },
+    "claim": {
+      "onlyInMorningReview": true
+    },
+    "paper": {
+      "enabled": true,
+      "pollSec": 60,
+      "nearSpanBins": 3,
+      "slowCheckMin": 10
+    }
+  }
+}

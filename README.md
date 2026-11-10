@@ -1,108 +1,77 @@
-# Careless LP Bot — Paper Test
+# Careless LP Bot
 
-Bot untuk **menguji strategi LP Meteora DLMM secara paper** sebelum dipakai dengan uang sungguhan. Data diambil langsung dari **Meteora Pool Discovery** dan **Jupiter** (endpoint yang sama dengan bot meridianEvPANDA): gratis, tanpa API key, tanpa private key, dan tidak pernah mengirim transaksi.
+Bot LP Meteora DLMM dengan **strategi Careless**, dibangun di atas arsitektur bot **meridianEvPANDA**: daemon standalone, eksekusi lokal pakai Meteora SDK, shadow mode + paper trading, admin Telegram, dan CLI yang sama. Lapisan strategi EvilPanda diganti `careless/`. Aturannya deterministik, tanpa LLM, tanpa API berbayar.
 
-Tujuannya: memilih versi Careless terbaik untuk dipakai live. EvilPanda ikut berjalan sebagai pembanding saja.
+## Alur Careless
 
-## Strategi yang dibandingkan
+1. **Kandidat** dari screener Meteora Pool Discovery tiap 5 menit (mcap ≥ $1M, volume pool ≥ $10K, timeframe 24 jam), urut fee/TVL 24 jam tertinggi. Ditambah mint di `careless.whitelistMints` (token narasi kuat).
+2. **Screening token** (Jupiter): launchpad pump.fun, umur ≥ 3 hari, mcap ≥ $1M, **ranging** (|harga 24 jam| ≤ 20%), tidak pump > 50% dalam 1 jam, top 10 holder < 30%, dev ≤ 5%, mint/freeze revoked, likuiditas 24 jam tidak anjlok > 30%. Lalu Rugcheck (skor, risiko danger) dan GMGN (dilewati kalau `GMGN_API_KEY` kosong). Whitelist melewati syarat umur, mcap, launchpad, dan ranging, tapi tidak melewati cek keamanan.
+3. **Pool**: pool DLMM token/SOL dengan TVL ≥ $30K, bin step 80–250, **fee/TVL 24 jam ≥ 5%**, tanpa peringatan Meteora. Bin step tertinggi didahulukan, karena range -80% butuh lebih sedikit bin.
+4. **Masuk langsung** selama slot masih kosong (tanpa sinyal chart). Harga dicek ulang sebelum submit (batal kalau bergerak > 5%).
+5. **Posisi**: SOL-only, **Spot 0% s/d -80%**, maksimal 5 × 0,2 SOL. Kalau range butuh bin array yang belum ada, range dipendekkan ke bin array yang sudah ada, jadi **rent bin array tidak pernah dibayar**. Pool yang hasilnya lebih dangkal dari -50% dilewati.
+6. **Exit** (yang duluan kena):
+   - **Stop loss -15%** (proteksi hard rug). Dicek tiap 3 detik, butuh 2 tick konfirmasi.
+   - **OOR kanan**: tutup setelah 30 menit, hanya kalau PnL positif. Kalau negatif, ditahan sampai harga balik atau SL.
+   - **OOR kiri / slow rug**: tutup setelah 60 menit.
+   - **Rug guard** (tiap siklus manajemen): likuiditas turun ≥ 15% dalam 5 menit atau ≥ 30% dalam 1 jam, authority aktif lagi, atau dua sinyal lunak sekaligus (jual ≥ 75% volume 1 jam, harga -20% dalam 5 menit, holder -5% dalam 1 jam).
+   - **Review pagi 06.00 WIB**: tutup kalau fee/TVL 24 jam < 5% atau harga 24 jam < -20%. Kalau masih sehat, **claim fee saja** dan posisi tetap jalan. Tanpa take profit dan tanpa rebalance.
+7. **Cooldown 6 jam** sebelum boleh masuk lagi ke token yang baru ditutup.
 
-Setiap eksperimen punya modal virtual sendiri (default 1,5 SOL) dan memakai data pasar yang sama.
+Semua ambang ada di blok `careless` di `user-config.json` (lihat `user-config.example.json`; default lengkap di `buildCarelessConfig` di `config.js`).
 
-| Eksperimen | Posisi | Token |
-| --- | --- | --- |
-| `careless` | Spot, SOL-only 0% s/d -80%, 5 × 0,2 SOL | pump.fun, umur ≥ 3 hari, mcap ≥ $1M, TVL ≥ $30K, ranging 24 jam (±20%), fee/TVL 24j ≥ 5% |
-| `careless_bidask` | sama, shape Bid-Ask | sama |
-| `careless_50` | sama, range 0% s/d -50% | sama |
-| `evilpanda` | Bid-Ask, 0% s/d -30%, 3 × 0,4 SOL | fee/TVL 24j ≥ 10%, fee 4 jam terakhir (setara 24j) ≥ 8%, organic ≥ 70 |
+## Paper trading (shadow mode)
 
-Aturan keluar:
+Dengan `shadowMode: true` (default), setiap entry yang *akan* dilakukan dibuka sebagai **posisi paper**. Posisinya dihargai tiap menit dari data Meteora dan ditutup dengan aturan exit yang sama. Wallet tidak disentuh sama sekali.
 
-| | Careless | EvilPanda |
-| --- | --- | --- |
-| Stop loss | -15% (termasuk fee) | -15% |
-| Ambil profit | review pagi 06.00 WIB: tutup kalau fee/TVL 24j < 5% atau harga 24j < -20% | trailing: aktif +5%, tutup kalau turun 3 poin |
-| Fee/TVL < 10% selama 60 menit | tidak berlaku | tutup |
-| Keluar range ke atas / bawah | tutup setelah 15 / 30 menit | tutup setelah 15 / 30 menit |
-| Rug guard | likuiditas ditarik, authority aktif, atau 2 sinyal lunak | sama |
+```sh
+node cli.js paper          # hasil paper: win rate, total PnL, per aturan exit, 10 terakhir
+node cli.js candidates     # token yang sudah di-screen dan alasan lolos/gagal
+node cli.js screen --mint ADDRESS   # screen satu token (read-only, tidak pernah deploy)
+```
 
-Rem: eksperimen berhenti buka posisi 24 jam setelah 3 stop-out (SL/rug) berturut-turut, atau rugi harian ≥ 10%.
+Di Telegram: `/paper`, `/candidates`, `/status`, `/menu` (ubah setting langsung dari chat).
 
-**Whitelist narasi** (`whitelist_mints`): token pilihan boleh melewati syarat umur, mcap, launchpad, dan ranging. Audit token dan rug guard tetap berlaku.
+Model paper (dari simulator meridian): posisi dihitung per bin sesuai bin step pool. Fee = fee pool 5 menit ÷ active TVL × likuiditas kita di ±3 bin dari harga. Saat tutup dipotong slippage 1% atas bagian token dan biaya transaksi 0,003 SOL. Angkanya estimasi, bukan janji hasil.
 
-Ubah atau tambah eksperimen di `lab.experiments` di `config/strategy.yaml`. Bagian config jalur mana pun bisa di-override.
+Strategi lain bisa dites bergantian lewat config (mis. `careless.position.strategy: "bid_ask"` atau `downsidePct: 50`), lalu bandingkan hasil `node cli.js paper`.
 
-## Cara kerja
+## Setup di VPS (berdampingan dengan bot meridian)
 
-| Siklus | Default | Isi |
-| --- | --- | --- |
-| Kelola posisi | 90 detik | harga + fee 5 menit dari Meteora, statistik token dari Jupiter → rug guard, SL, TP, OOR, review pagi |
-| Screening | 10 menit | **tahap 1** scan Meteora (fee/TVL, TVL, bin step, blacklist, peringatan) → **tahap 2** audit token Jupiter + syarat jalur, maks 8 audit per screening |
-| Laporan | 07.00 WIB | tabel perbandingan ke Telegram/Discord |
+Bot ini berdiri sendiri: folder, `.env`, `user-config.json`, file state, lock, dan nama PM2 (`careless`) terpisah dari bot meridian.
 
-Data yang hilang tidak pernah dianggap aman: pool atau token tanpa data audit ditolak, dan posisi yang harganya sesaat tidak tersedia dilewati (tidak ditutup).
-
-### Model paper
-
-Port dari simulator meridianEvPANDA (`evilpanda/sim.js`):
-
-- Posisi = bin nyata sesuai bin step pool. Spot rata per bin, Bid-Ask makin tebal ke bawah.
-- **Nilai (IL):** bin yang sudah dilewati harga dianggap sudah berubah jadi token di harga bin itu.
-- **Fee:** fee pool 5 menit ÷ active TVL × likuiditas kita di ±3 bin dari harga. Range lebih lebar berarti likuiditas per bin lebih tipis, jadi fee per SOL lebih kecil. Posisi di luar range tidak dapat fee. Maksimal 15 menit dihitung per update, supaya bot yang mati lama tidak mendapat fee fiktif.
-- **Saat tutup:** dipotong slippage 1% atas bagian token dan biaya transaksi 0,003 SOL.
-
-Angka absolutnya tetap estimasi. Yang paling berguna adalah **perbandingan antar strategi**.
-
-## Instal di VPS (berdampingan dengan bot lain)
-
-Butuh Node.js 20+. Kalau bot lain (mis. meridianEvPANDA) memakai Node lama, cek dulu `node -v` sebelum mengganti versi global.
-
-```bash
+```sh
 cd ~
 git clone https://github.com/woeatomo/Careless.git careless-bot
 cd careless-bot
-npm install
-cp .env.example .env && chmod 600 .env
-nano .env        # opsional: token bot Telegram BARU + chat id
-npm test         # 24 test
-npm run once     # satu siklus + tabel perbandingan
+bash scripts/setup-vps.sh      # Node, pm2, npm install, npm test, buat user-config.json + .env
+nano .env                      # RPC_URL, WALLET_ADDRESS, TELEGRAM_BOT_TOKEN (bot BARU), TELEGRAM_CHAT_ID
+npm run pm2:start              # PM2 name: careless
+npm run pm2:logs
 ```
 
-Jalankan terus dengan PM2 (batasi memori untuk VPS kecil):
+Jangan isi `WALLET_PRIVATE_KEY` selama paper test. Token Telegram harus dari **bot baru**: dua proses yang membaca token yang sama akan rebutan perintah.
 
-```bash
-pm2 start npm --name careless-bot --max-memory-restart 300M -- start
-pm2 save
-pm2 ls           # kedua bot harus online
+## Ke live
+
+Setelah hasil paper bagus (saran: ≥ 7 hari, ≥ 20 posisi tutup):
+
+1. Isi `WALLET_PRIVATE_KEY` di `.env` (atau `/menu` → 🔑 Bot key di Telegram). Isi wallet hanya dengan modal LP.
+2. `shadowMode: false` di `user-config.json` (atau tombol 🌑 Shadow di `/menu`).
+3. `npm run pm2:restart`.
+
+## Perintah
+
+```sh
+node cli.js help
+node cli.js positions | balance | pool --pool ADDRESS | config
+node cli.js close --position ADDRESS | claim --position ADDRESS
+node cli.js blacklist add --mint ADDRESS
+npm test
 ```
 
-Bot ini berdiri sendiri: folder, `.env`, `data/`, dan nama proses PM2 terpisah dari bot lain.
+## Catatan
 
-Telegram: buat bot di @BotFather → isi `TELEGRAM_BOT_TOKEN` → kirim pesan ke bot → ambil `chat.id` dari `https://api.telegram.org/bot<TOKEN>/getUpdates` → isi `TELEGRAM_CHAT_ID`. Perintah: `/compare`, `/positions`, `/pause`, `/resume`.
-
-## Membaca hasil
-
-- `/compare` kapan saja, atau `npm run once`.
-- `data/journal.jsonl`: setiap audit (`lab_audit`, lengkap dengan alasan tolak), buka (`lab_open`), dan tutup (`lab_close`).
-- Kalau log terus menulis `Scan (semua, ...): 0 pool`, isi `tracks.careless.scan.category: trending`.
-
-Saran: jalankan minimal 7 hari, sampai tiap strategi punya ≥ 20 posisi tutup. Lihat return, win rate, jumlah SL/rug, dan drawdown, bukan cuma return.
-
-## Ke live (berikutnya)
-
-Mode live belum tersedia (`mode.dry_run: false` sengaja ditolak). Setelah ada pemenang, eksekusi Careless akan di-port dari `tools/dlmm.js` meridianEvPANDA: Meteora SDK, posisi lebar > 69 bin, dan pemendekan range supaya tidak membayar rent bin array. EvilPanda tetap paper.
-
-## Struktur
-
-```
-config/strategy.yaml    semua ambang, per jalur + daftar eksperimen
-src/index.ts            loop utama + perintah Telegram
-src/lab.ts              paper test banyak strategi + metrik + laporan
-src/sources.ts          Meteora Discovery + Jupiter (timeout, jeda per host, retry 429)
-src/paper.ts            simulator posisi DLMM berbasis bin
-src/rules/entry.ts      screening tahap 1 + audit tahap 2
-src/rules/exit.ts       keputusan tutup (fungsi murni) + review pagi
-src/rules/rug.ts        deteksi rug
-src/rules/risk.ts       hitungan stop-out
-src/state.ts            state.json + journal.jsonl
-test/                   test aturan, simulator, normalisasi data, Lab
-```
+- **Deploy gates** di level atas `user-config.json` (`minTvl`, `maxTvl`, `minBinStep`, `maxBinStep`, `timeframe`, `minFeeActiveTvlRatio`) dicek ulang oleh executor tepat sebelum deploy. Jaga agar tidak lebih ketat dari `careless.pool`.
+- Rug guard memakai statistik token Jupiter (5 menit / 1 jam), dicek tiap siklus manajemen (default 10 menit). Stop loss tetap dicek tiap 3 detik.
+- Range -80% di bin step 100 butuh 162 bin. Tergantung bin array yang sudah ada, range bisa dipendekkan (posisi tetap dibuka kalau masih ≥ -50%).
+- LP tetap berisiko: impermanent loss, rug, dan risiko smart contract.
