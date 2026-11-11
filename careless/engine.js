@@ -28,6 +28,7 @@ import { rejectTokenBasics, rejectRugcheck, rejectGmgnFetch, rejectPool, rankPoo
 import { fastExitDecision, updateOor, rugDecision, reviewDue, morningReviewDecision, localClock } from "./exits.js";
 import { binsForDownsidePct } from "./range.js";
 import * as paper from "./paper.js";
+import { poolRecord, poolVerdict, orderPoolsByRecord, rankCandidates, cooldownHoursFor } from "./track.js";
 
 const STATE_FILE = repoPath("careless-state.json");
 const cl = () => config.careless;
@@ -38,9 +39,9 @@ const paperOn = () => config.standalone.shadow && cl().paper.enabled;
 function loadState() {
   try {
     const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    return { candidates: s.candidates ?? {}, positions: s.positions ?? {}, cooldowns: s.cooldowns ?? {} };
+    return { candidates: s.candidates ?? {}, positions: s.positions ?? {}, cooldowns: s.cooldowns ?? {}, history: Array.isArray(s.history) ? s.history : [] };
   } catch {
-    return { candidates: {}, positions: {}, cooldowns: {} };
+    return { candidates: {}, positions: {}, cooldowns: {}, history: [] };
   }
 }
 let state = loadState();
@@ -59,14 +60,33 @@ const closing = new Set();
 
 const onCooldown = (mint, now = Date.now()) => (state.cooldowns[mint] ?? 0) > now;
 
-/** After any close, keep the bot away from that token for a while (no re-entry into a fresh dump). */
-function setCooldown(mint, reason) {
+/**
+ * After a close, keep the bot away from that token for a while: short after a
+ * profit (re-farm a proven pool), longer after a flat/losing close, longest
+ * after a stop loss or rug guard.
+ */
+function setCooldown(mint, reason, pnlPct = null) {
   if (!mint) return;
-  state.cooldowns[mint] = Date.now() + cl().entry.reentryCooldownHours * 3_600_000;
+  const hours = cooldownHoursFor(reason, pnlPct, cl().entry);
+  state.cooldowns[mint] = Date.now() + hours * 3_600_000;
   const w = state.candidates[mint];
-  if (w) Object.assign(w, { pass: false, reason: `cooldown after close (${reason})` });
+  if (w) Object.assign(w, { pass: false, reason: `cooldown ${hours}h after close (${reason})` });
   saveState();
 }
+
+// ─── Pool track record ──────────────────────────────────────────────────────
+
+/** Remember a closed trade (paper or live) for the per-pool track record. */
+function recordClose(t) {
+  if (!t?.pool || !Number.isFinite(Number(t.pnlPct))) return;
+  state.history.push({ pool: t.pool, mint: t.mint ?? null, symbol: t.symbol ?? null, rule: t.rule, pnlPct: Number(t.pnlPct), pnlSol: t.pnlSol ?? null, feesSol: t.feesSol ?? null, heldMin: t.heldMin ?? null, closedAt: t.closedAt ?? Date.now(), paper: !!t.paper });
+  const max = cl().track.maxHistory ?? 1000;
+  if (state.history.length > max) state.history = state.history.slice(-max);
+  saveState();
+}
+
+const verdictOf = pool => poolVerdict(poolRecord(state.history, pool, cl().track.lookbackDays), cl().track);
+const hasHistory = pool => state.history.some(h => h.pool === pool);
 
 function pruneCooldowns(now = Date.now()) {
   for (const [mint, until] of Object.entries(state.cooldowns)) if (until <= now) delete state.cooldowns[mint];
@@ -112,8 +132,13 @@ export async function screenCandidate(mint) {
     } catch (err) { rejected.push(err.message); }
   }
   if (!eligible.length) return { pass: false, reason: rejected.slice(0, 2).join("; ") || "no eligible token/SOL DLMM pool" };
-  const ranked = rankPools(eligible, c.pool.preferHighBinStep);
-  return { pass: true, reason: "ok", token, pool: ranked[0], pools: ranked, rugcheck, gmgn };
+  let ranked = rankPools(eligible, c.pool.preferHighBinStep);
+  if (c.track.enabled) {
+    ranked = orderPoolsByRecord(ranked, verdictOf);
+    if (!ranked.length) return { pass: false, reason: "every eligible pool is on a losing streak" };
+  }
+  const v = c.track.enabled ? verdictOf(ranked[0].pool_address) : null;
+  return { pass: true, reason: v?.tier === "proven" ? v.reason : "ok", token, pool: ranked[0], pools: ranked, rugcheck, gmgn };
 }
 
 function recordScreen(mint, r, source) {
@@ -198,9 +223,12 @@ async function tryEntries() {
     const paperOpen = paperOn() ? paper.openPaperPositions() : [];
     let open = live.positions.length + paperOpen.length;
     const held = new Set([...live.positions.map(p => p.base_mint), ...paperOpen.map(p => p.mint)].filter(Boolean));
-    const candidates = Object.values(state.candidates)
-      .filter(w => w.pass && w.poolAddress && !held.has(w.mint) && !onCooldown(w.mint))
-      .sort((a, b) => (b.feeTvl24hPct ?? 0) - (a.feeTvl24hPct ?? 0));
+    const passed = Object.values(state.candidates)
+      .filter(w => w.pass && w.poolAddress && !held.has(w.mint) && !onCooldown(w.mint));
+    // Proven pools first, pools on a losing streak skipped, then 24h fee/TVL.
+    const candidates = cl().track.enabled
+      ? rankCandidates(passed, verdictOf)
+      : passed.sort((a, b) => (b.feeTvl24hPct ?? 0) - (a.feeTvl24hPct ?? 0));
     for (const w of candidates) {
       if (open >= config.risk.maxPositions) break;
       const attempt = store?.data.attempts[w.mint];
@@ -277,13 +305,14 @@ async function attemptEntry(w) {
       binStep: Number(result.would_deploy?.bin_step ?? w.binStep),
       binsBelow: Number(result.would_deploy?.bins_below ?? binsForDownsidePct(depthPct, w.binStep)),
       shape: c.position.strategy, capitalSol: amountY, sources: w.sources,
+      reentry: hasHistory(w.poolAddress),
     });
     rec.position = pp.id;
     store.save();
     log("cl_paper", `📝 opened ${pp.id}: ${amountY} SOL ${c.position.strategy}, ${pp.binsBelow} bins @ ${basePrice}`);
   }
   if (rec.position && !String(rec.position).startsWith("paper-")) {
-    state.positions[rec.position] = { mint: w.mint, pool: w.poolAddress, enteredAt: Date.now(), oor: null, lastReviewDate: null };
+    state.positions[rec.position] = { mint: w.mint, pool: w.poolAddress, symbol: w.symbol ?? null, amountSol: amountY, enteredAt: Date.now(), oor: null, lastReviewDate: null };
     saveState();
   }
   const range = result.would_deploy ? ` bins_below=${result.would_deploy.bins_below}${result.would_deploy.range_shrunk ? " (shrunk, rent-free)" : ""}` : "";
@@ -349,7 +378,8 @@ function closePaperPosition(p, decision) {
   const t = paper.closePaper(p.position, { rule: decision.rule, reason: decision.reason });
   if (!t) return;
   delete state.positions[p.position];
-  setCooldown(t.mint, decision.rule);
+  recordClose({ ...t, paper: true });
+  setCooldown(t.mint, decision.rule, t.pnlPct);
   const attempt = store?.data.attempts[t.mint];
   if (attempt?.position === p.position) { attempt.status = "closed"; store.save(); }
   log("cl_paper", `📝 closed ${t.symbol ?? t.mint.slice(0, 8)}: ${decision.rule} → ${t.pnlPct.toFixed(2)}% (${t.pnlSol.toFixed(4)} SOL, fees ${t.feesSol.toFixed(4)}) after ${t.heldMin}m — ${decision.reason}`);
@@ -372,9 +402,18 @@ export async function closePosition(p, decision) {
       recentlyClosed.set(p.position, { at: Date.now(), dryRun: !!res?.dry_run });
       void notify(`${res?.dry_run ? "🕯️ Shadow close" : "🔚 Closed"} ${p.pair ?? p.position.slice(0, 8)}: ${decision.rule} — ${decision.reason}`);
       if (!res?.dry_run) {
-        const mint = state.positions[p.position]?.mint ?? p.base_mint;
+        const rec = state.positions[p.position];
+        const mint = rec?.mint ?? p.base_mint;
+        const pnlPct = !p.pnl_pct_suspicious && Number.isFinite(Number(p.pnl_pct)) ? Number(p.pnl_pct) : null;
+        if (pnlPct != null) {
+          recordClose({
+            pool: rec?.pool ?? p.pool, mint, symbol: rec?.symbol ?? p.pair, rule: decision.rule, pnlPct,
+            pnlSol: Number.isFinite(rec?.amountSol) ? rec.amountSol * pnlPct / 100 : null,
+            heldMin: rec?.enteredAt ? Math.round((Date.now() - rec.enteredAt) / 60_000) : null,
+          });
+        }
         delete state.positions[p.position];
-        setCooldown(mint, decision.rule);
+        setCooldown(mint, decision.rule, pnlPct);
       }
     }
   } finally {
@@ -439,6 +478,16 @@ export function startEngine({ monitorStore, notifyFn }) {
 
 export function stopEngine() {
   for (const t of Object.values(timers)) { clearInterval(t); clearTimeout(t); }
+}
+
+/** Per-pool track record (newest activity first) for CLI / Telegram. */
+export function trackSummary() {
+  const pools = [...new Set(state.history.map(h => h.pool))];
+  return pools.map(pool => {
+    const v = verdictOf(pool);
+    const last = state.history.filter(h => h.pool === pool).at(-1);
+    return { pool, symbol: last?.symbol ?? null, tier: v.tier, n: v.record.n, wins: v.record.wins, avgPct: v.record.avgPct == null ? null : +v.record.avgPct.toFixed(2), lastClosedAt: last?.closedAt ?? null };
+  }).filter(r => r.n > 0).sort((a, b) => (b.lastClosedAt ?? 0) - (a.lastClosedAt ?? 0));
 }
 
 export function candidatesSummary() {

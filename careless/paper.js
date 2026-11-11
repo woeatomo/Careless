@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import { repoPath } from "../repo-root.js";
 import { buildBins, valueAt, positionView, liquidityNearPrice } from "./sim.js";
+import { summarizeTrades } from "./track.js";
 
 const FILE = repoPath("careless-paper.json");
 
@@ -19,10 +20,10 @@ function load() {
 let book = load();
 const save = () => { try { fs.writeFileSync(FILE, JSON.stringify(book, null, 2)); } catch { /* best-effort */ } };
 
-export function openPaper({ mint, pool, symbol, entryPrice, binStep, binsBelow, shape, capitalSol, sources = ["screener"] }) {
+export function openPaper({ mint, pool, symbol, entryPrice, binStep, binsBelow, shape, capitalSol, sources = ["screener"], reentry = false }) {
   const id = `paper-${mint.slice(0, 6)}-${Date.now()}`;
   book.open[id] = {
-    id, mint, pool, symbol, entryPrice, binStep, binsBelow, shape, capitalSol, sources,
+    id, mint, pool, symbol, entryPrice, binStep, binsBelow, shape, capitalSol, sources, reentry,
     openedAt: Date.now(), lastAt: Date.now(), fees: 0, feeLog: [], peak: null, oor: null, lastPrice: entryPrice,
   };
   save();
@@ -88,7 +89,7 @@ export function closePaper(id, { rule, reason, slippagePct = 1, txSol = 0.003 })
   const v = valueAt(bins(p), p.lastPrice);
   const final = v.value + p.fees - v.tokenValue * slippagePct / 100 - txSol;
   const trade = {
-    id, mint: p.mint, symbol: p.symbol, pool: p.pool, shape: p.shape, sources: p.sources,
+    id, mint: p.mint, symbol: p.symbol, pool: p.pool, shape: p.shape, sources: p.sources, reentry: p.reentry === true,
     openedAt: p.openedAt, closedAt: Date.now(), heldMin: Math.round((Date.now() - p.openedAt) / 60_000),
     rule, reason, capitalSol: p.capitalSol,
     pnlSol: final - p.capitalSol, pnlPct: (final / p.capitalSol - 1) * 100, feesSol: p.fees,
@@ -102,14 +103,19 @@ export function closePaper(id, { rule, reason, slippagePct = 1, txSol = 0.003 })
 
 export function paperSummary() {
   const c = book.closed;
-  const sum = c.reduce((a, t) => a + t.pnlSol, 0);
+  const s = summarizeTrades(c);
   return {
-    open: Object.values(book.open).map(p => ({ id: p.id, symbol: p.symbol, shape: p.shape, ageMin: Math.round((Date.now() - p.openedAt) / 60_000), feesSol: +p.fees.toFixed(5), lastMovePct: +((p.lastPrice / p.entryPrice - 1) * 100).toFixed(2) })),
-    closed: c.length,
-    winRatePct: c.length ? Math.round(c.filter(t => t.pnlSol > 0).length / c.length * 100) : null,
-    totalPnlSol: +sum.toFixed(4),
-    avgPnlPct: c.length ? +(c.reduce((a, t) => a + t.pnlPct, 0) / c.length).toFixed(2) : null,
-    byRule: c.reduce((m, t) => { (m[t.rule] ??= { n: 0, pnlSol: 0 }); m[t.rule].n++; m[t.rule].pnlSol = +(m[t.rule].pnlSol + t.pnlSol).toFixed(4); return m; }, {}),
-    last: c.slice(-10).map(t => ({ symbol: t.symbol, rule: t.rule, pnlPct: +t.pnlPct.toFixed(2), heldMin: t.heldMin })),
+    open: Object.values(book.open).map(p => ({ id: p.id, symbol: p.symbol, shape: p.shape, reentry: p.reentry === true, ageMin: Math.round((Date.now() - p.openedAt) / 60_000), feesSol: +p.fees.toFixed(5), lastMovePct: +((p.lastPrice / p.entryPrice - 1) * 100).toFixed(2) })),
+    closed: s.n,
+    winRatePct: s.winRatePct,
+    totalPnlSol: s.pnlSol,
+    avgPnlPct: s.avgPnlPct,
+    feesSol: s.feesSol,
+    feeKeptPct: s.feeKeptPct,
+    medianHeldMin: s.medianHeldMin,
+    reentry: s.reentry,
+    firstEntry: s.firstEntry,
+    byRule: s.byRule,
+    last: c.slice(-10).map(t => ({ symbol: t.symbol, rule: t.rule, pnlPct: +t.pnlPct.toFixed(2), heldMin: t.heldMin, reentry: t.reentry === true })),
   };
 }

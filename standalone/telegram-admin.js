@@ -13,7 +13,7 @@ import { config } from "../config.js";
 import { log } from "../logger.js";
 import { repoPath } from "../repo-root.js";
 import { sendMessage, sendMenu, editMenu, answerCallbackQuery, setBotCommands, startAdminPolling } from "../telegram.js";
-import { paperSummary, candidatesSummary } from "../careless/engine.js";
+import { paperSummary, candidatesSummary, trackSummary } from "../careless/engine.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const ENV_PATH = repoPath(".env");
@@ -368,12 +368,16 @@ function paperText() {
   const s = paperSummary();
   const lines = [
     `📝 <b>Paper trading</b>${config.standalone.shadow ? "" : " (inactive: LIVE mode)"}`,
-    `Closed: ${s.closed} | win rate: ${s.winRatePct ?? "—"}% | total: ${s.totalPnlSol} SOL | avg: ${s.avgPnlPct ?? "—"}%`,
+    `Closed: ${s.closed} | total: ${s.totalPnlSol} SOL | avg: ${s.avgPnlPct ?? "—"}% | win rate: ${s.winRatePct ?? "—"}%`,
+    `Fees: ${s.feesSol} SOL | fee kept: ${s.feeKeptPct ?? "—"}% | median hold: ${s.medianHeldMin ?? "—"}m`,
+    `Re-entry: ${s.reentry.n}× ${s.reentry.pnlSol} SOL (avg ${s.reentry.avgPnlPct ?? "—"}%) | first entry: ${s.firstEntry.n}× ${s.firstEntry.pnlSol} SOL (avg ${s.firstEntry.avgPnlPct ?? "—"}%)`,
   ];
+  const track = trackSummary().slice(0, 8);
+  if (track.length) lines.push("", "<b>Pool record</b>", ...track.map(r => `• ${r.tier === "proven" ? "⭐" : r.tier === "bad" ? "⛔" : "·"} ${r.symbol ?? r.pool.slice(0, 8)} ${r.wins}/${r.n}, avg ${r.avgPct >= 0 ? "+" : ""}${r.avgPct}%`));
   if (s.open.length) lines.push("", "<b>Open</b>", ...s.open.map(p => `• ${p.symbol ?? p.id} ${p.shape} ${p.ageMin}m, fees ${p.feesSol} SOL, price ${p.lastMovePct >= 0 ? "+" : ""}${p.lastMovePct}%`));
   const rules = Object.entries(s.byRule);
   if (rules.length) lines.push("", "<b>By exit</b>", ...rules.map(([r, v]) => `• ${r}: ${v.n}× ${v.pnlSol} SOL`));
-  if (s.last.length) lines.push("", "<b>Last</b>", ...s.last.map(t => `• ${t.symbol ?? "?"} ${t.rule} ${t.pnlPct >= 0 ? "+" : ""}${t.pnlPct}% (${t.heldMin}m)`));
+  if (s.last.length) lines.push("", "<b>Last</b>", ...s.last.map(t => `• ${t.symbol ?? "?"} ${t.rule} ${t.pnlPct >= 0 ? "+" : ""}${t.pnlPct}% (${t.heldMin}m)${t.reentry ? " ↻" : ""}`));
   return lines.join("\n");
 }
 

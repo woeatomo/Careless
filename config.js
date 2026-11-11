@@ -91,7 +91,7 @@ export const config = {
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,
-    repeatDeployCooldownEnabled: u.repeatDeployCooldownEnabled ?? true,
+    repeatDeployCooldownEnabled: u.repeatDeployCooldownEnabled ?? false, // Careless: profitable re-entries are the point, don't punish them
     repeatDeployCooldownTriggerCount: u.repeatDeployCooldownTriggerCount ?? 3,
     repeatDeployCooldownHours: u.repeatDeployCooldownHours ?? 12,
     repeatDeployCooldownScope: u.repeatDeployCooldownScope ?? "token", // pool | token | both
@@ -231,7 +231,17 @@ export function buildCarelessConfig(c = {}) {
   });
   const entry = pick(c.entry, {
     maxPriceMovePct: 5,         // abort if price moved more than this between decision and submit
-    reentryCooldownHours: 6,    // no re-entry into a token for this long after any close
+    reentryCooldownHours: 6,    // re-entry cooldown after a flat/losing close
+    reentryCooldownWinHours: 1, // after a profitable close: come back sooner (HALO: winners re-farm proven pools)
+    reentryCooldownLossHours: 24, // after STOP_LOSS / RUG_GUARD
+  });
+  const track = pick(c.track, {
+    enabled: true,              // remember net PnL per pool (paper + live closes)
+    lookbackDays: 14,
+    minTrades: 2,               // closes needed before a pool counts as "proven" (avg net PnL > 0)
+    blockLossStreak: 2,         // this many losing closes in a row on a pool → skip it…
+    blockHours: 48,             // …for this long after the last loss
+    maxHistory: 1000,
   });
   const exits = pick(c.exits, {
     stopLossPct: -15,           // hard rug protection (PnL incl. fees)
@@ -272,7 +282,7 @@ export function buildCarelessConfig(c = {}) {
   return {
     enabled: c.enabled !== false,
     whitelistMints: Array.isArray(c.whitelistMints) ? c.whitelistMints.filter(m => typeof m === "string" && m) : [],
-    screener, filters, pool, rugcheck, gmgn, position, entry, exits, rugGuard, morningReview, claim, paper,
+    screener, filters, pool, rugcheck, gmgn, position, entry, track, exits, rugGuard, morningReview, claim, paper,
   };
 }
 

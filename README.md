@@ -15,7 +15,8 @@ Bot LP Meteora DLMM dengan **strategi Careless**, dibangun di atas arsitektur bo
    - **OOR kiri / slow rug**: tutup setelah 60 menit.
    - **Rug guard** (tiap siklus manajemen): likuiditas turun ≥ 15% dalam 5 menit atau ≥ 30% dalam 1 jam, authority aktif lagi, atau dua sinyal lunak sekaligus (jual ≥ 75% volume 1 jam, harga -20% dalam 5 menit, holder -5% dalam 1 jam).
    - **Review pagi 06.00 WIB**: tutup kalau fee/TVL 24 jam < 5% atau harga 24 jam < -20%. Kalau masih sehat, **claim fee saja** dan posisi tetap jalan. Tanpa take profit dan tanpa rebalance.
-7. **Cooldown 6 jam** sebelum boleh masuk lagi ke token yang baru ditutup.
+7. **Cooldown re-entry tergantung hasil**: 1 jam setelah close profit, 6 jam setelah close flat/rugi, 24 jam setelah stop loss atau rug guard.
+8. **Track record per pool** (paper + live, 14 hari terakhir): pool dengan ≥ 2 close dan rata-rata net PnL positif jadi **proven** dan didahulukan saat entry. Pool yang rugi 2× berturut-turut di-skip 48 jam. Dasarnya data HALO (1,7 juta posisi DLMM): LP yang untung terus farming ulang pool yang sudah terbukti, dan win rate hampir tidak membedakan mereka. Cooldown "repeat fee-generating deploys" dimatikan (`repeatDeployCooldownEnabled: false`) karena justru menghukum re-entry yang profit.
 
 Semua ambang ada di blok `careless` di `user-config.json` (lihat `user-config.example.json`; default lengkap di `buildCarelessConfig` di `config.js`).
 
@@ -24,7 +25,8 @@ Semua ambang ada di blok `careless` di `user-config.json` (lihat `user-config.ex
 Dengan `shadowMode: true` (default), setiap entry yang *akan* dilakukan dibuka sebagai **posisi paper**. Posisinya dihargai tiap menit dari data Meteora dan ditutup dengan aturan exit yang sama. Wallet tidak disentuh sama sekali.
 
 ```sh
-node cli.js paper          # hasil paper: win rate, total PnL, per aturan exit, 10 terakhir
+node cli.js paper          # hasil paper: total PnL, fee kept %, median hold, re-entry vs entry pertama, per aturan exit
+node cli.js track          # track record per pool (⭐ proven / baru / ⛔ losing streak)
 node cli.js candidates     # token yang sudah di-screen dan alasan lolos/gagal
 node cli.js screen --mint ADDRESS   # screen satu token (read-only, tidak pernah deploy)
 ```
@@ -32,6 +34,8 @@ node cli.js screen --mint ADDRESS   # screen satu token (read-only, tidak pernah
 Di Telegram: `/paper`, `/candidates`, `/status`, `/menu` (ubah setting langsung dari chat).
 
 Model paper (dari simulator meridian): posisi dihitung per bin sesuai bin step pool. Fee = fee pool 5 menit ÷ active TVL × likuiditas kita di ±3 bin dari harga. Saat tutup dipotong slippage 1% atas bagian token dan biaya transaksi 0,003 SOL. Angkanya estimasi, bukan janji hasil.
+
+Angka utama yang dilihat: **fee kept %** = net PnL ÷ fee yang didapat. Positif berarti fee masih tersisa setelah IL dan biaya (pemenang di data HALO ~40%); negatif berarti harga makan lebih dari semua fee. Win rate sendiri bukan penentu.
 
 Strategi lain bisa dites bergantian lewat config (mis. `careless.position.strategy: "bid_ask"` atau `downsidePct: 50`), lalu bandingkan hasil `node cli.js paper`.
 

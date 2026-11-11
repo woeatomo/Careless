@@ -13,6 +13,7 @@ Commands:
   screen --mint ADDRESS           Careless screen for one mint, read-only; never deploys
   candidates                      Screened candidates and why they pass/fail
   paper                           Paper-trading results (shadow mode simulated positions)
+  track                           Per-pool track record (proven / new / losing streak)
   pool --pool ADDRESS             Read focused pool metrics
   active-bin --pool ADDRESS       Read the current on-chain bin
   manage                          Run one deterministic management pass
@@ -68,6 +69,7 @@ async function main() {
     case 'active-bin': return out(await (await import('./tools/dlmm.js')).getActiveBin({ pool_address: requireFlag('pool') }));
     case 'manage': return out(await (await import('./standalone/runtime.js')).manageOnce());
     case 'paper': return out((await import('./careless/paper.js')).paperSummary());
+    case 'track': return out((await import('./careless/engine.js')).trackSummary());
     case 'close': case 'claim': case 'swap': {
       const { executeTool } = await import('./tools/executor.js');
       if (cmd === 'close') return out(await executeTool('close_position', { position_address: requireFlag('position'), reason: flags.reason || 'manual close', skip_swap: !!flags['skip-swap'] }));

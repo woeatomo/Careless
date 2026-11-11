@@ -192,3 +192,77 @@ test("screener scan: one candidate per mint, best 24h fee/TVL first, SOL quote o
     globalThis.fetch = realFetch;
   }
 });
+
+// ─── Track record (HALO findings: re-farm proven pools, judge net not win rate) ───
+import { poolRecord, poolVerdict, orderPoolsByRecord, rankCandidates, cooldownHoursFor, summarizeTrades } from "../careless/track.js";
+
+const H = (pool, pnlPct, minsAgo, extra = {}) => ({ pool, pnlPct, closedAt: NOW - minsAgo * 60_000, ...extra });
+
+test("track: proven pool needs enough closes with a positive average", () => {
+  const hist = [H("A", 3, 300), H("A", -1, 200), H("A", 2, 100)];
+  const v = poolVerdict(poolRecord(hist, "A", C.track.lookbackDays, NOW), C.track, NOW);
+  assert.equal(v.tier, "proven");
+  assert.equal(poolVerdict(poolRecord([H("A", 3, 10)], "A", 14, NOW), C.track, NOW).tier, "new");
+  assert.equal(poolVerdict(poolRecord([], "A", 14, NOW), C.track, NOW).tier, "new");
+});
+
+test("track: a fresh losing streak pauses the pool, then it expires", () => {
+  const hist = [H("A", 4, 600), H("A", -2, 120), H("A", -15, 60)];
+  assert.equal(poolVerdict(poolRecord(hist, "A", 14, NOW), C.track, NOW).tier, "bad");
+  const later = NOW + 49 * 3_600_000;
+  assert.notEqual(poolVerdict(poolRecord(hist, "A", 14, later), C.track, later).tier, "bad");
+  // a win breaks the streak
+  assert.equal(poolVerdict(poolRecord([...hist, H("A", 1, 5)], "A", 14, NOW), C.track, NOW).tier, "new");
+});
+
+test("track: old trades fall out of the lookback window", () => {
+  const r = poolRecord([H("A", -5, 20 * 24 * 60), H("A", -5, 19 * 24 * 60)], "A", 14, NOW);
+  assert.equal(r.n, 0);
+});
+
+test("track: proven first, bad dropped, then fee/TVL", () => {
+  const hist = [H("P", 2, 300), H("P", 3, 200), H("B", -2, 100), H("B", -3, 50)];
+  const verdictOf = pool => poolVerdict(poolRecord(hist, pool, 14, NOW), C.track, NOW);
+  const ranked = rankCandidates([
+    { mint: "m1", poolAddress: "N", feeTvl24hPct: 30 },
+    { mint: "m2", poolAddress: "B", feeTvl24hPct: 50 },
+    { mint: "m3", poolAddress: "P", feeTvl24hPct: 6 },
+    { mint: "m4", poolAddress: "N2", feeTvl24hPct: 40 },
+  ], verdictOf);
+  assert.deepEqual(ranked.map(w => w.poolAddress), ["P", "N2", "N"]);
+  assert.equal(ranked[0].track, "proven");
+  const pools = orderPoolsByRecord([{ pool_address: "B" }, { pool_address: "N" }, { pool_address: "P" }], verdictOf);
+  assert.deepEqual(pools.map(p => p.pool_address), ["P", "N"]);
+});
+
+test("track: re-entry cooldown depends on the outcome", () => {
+  assert.equal(cooldownHoursFor("OOR_ABOVE", 2.5, C.entry), 1);
+  assert.equal(cooldownHoursFor("MORNING_REVIEW", -1, C.entry), 6);
+  assert.equal(cooldownHoursFor("OOR_BELOW", null, C.entry), 6);
+  assert.equal(cooldownHoursFor("STOP_LOSS", -15, C.entry), 24);
+  assert.equal(cooldownHoursFor("RUG_GUARD", 1, C.entry), 24);
+  assert.equal(cooldownHoursFor("OOR_ABOVE", 1, { reentryCooldownHours: 6 }), 6); // old configs keep working
+});
+
+test("track: summary reports fee kept %, median hold and re-entry split", () => {
+  const s = summarizeTrades([
+    { rule: "OOR_ABOVE", pnlSol: 0.02, pnlPct: 10, feesSol: 0.05, heldMin: 60, reentry: true },
+    { rule: "STOP_LOSS", pnlSol: -0.03, pnlPct: -15, feesSol: 0.01, heldMin: 20 },
+    { rule: "MORNING_REVIEW", pnlSol: 0.01, pnlPct: 5, feesSol: 0.04, heldMin: 600, reentry: true },
+  ]);
+  assert.equal(s.n, 3);
+  assert.equal(s.feesSol, 0.1);
+  assert.equal(s.pnlSol, 0);
+  assert.equal(s.feeKeptPct, 0);
+  assert.equal(s.medianHeldMin, 60);
+  assert.equal(s.reentry.n, 2);
+  assert.equal(s.reentry.feeKeptPct, 33);
+  assert.equal(s.firstEntry.feeKeptPct, -300);
+  assert.equal(s.byRule.STOP_LOSS.n, 1);
+});
+
+test("defaults: profitable re-entries are not punished", () => {
+  assert.equal(C.entry.reentryCooldownWinHours, 1);
+  assert.equal(C.entry.reentryCooldownLossHours, 24);
+  assert.equal(C.track.enabled, true);
+});

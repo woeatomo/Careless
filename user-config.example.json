@@ -24,7 +24,7 @@
   "minClaimAmount": 1,
   "autoSwapAfterClaim": true,
   "solMode": true,
-  "repeatDeployCooldownEnabled": true,
+  "repeatDeployCooldownEnabled": false,
   "repeatDeployCooldownTriggerCount": 3,
   "repeatDeployCooldownHours": 12,
   "repeatDeployCooldownScope": "token",
@@ -84,7 +84,16 @@
     },
     "entry": {
       "maxPriceMovePct": 5,
-      "reentryCooldownHours": 6
+      "reentryCooldownHours": 6,
+      "reentryCooldownWinHours": 1,
+      "reentryCooldownLossHours": 24
+    },
+    "track": {
+      "enabled": true,
+      "lookbackDays": 14,
+      "minTrades": 2,
+      "blockLossStreak": 2,
+      "blockHours": 48
     },
     "exits": {
       "stopLossPct": -15,
